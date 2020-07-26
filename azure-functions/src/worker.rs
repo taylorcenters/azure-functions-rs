@@ -5,13 +5,14 @@ use crate::{
     logger,
     registry::Registry,
     rpc::{
-        client::FunctionRpcClient, status_result::Status, streaming_message::Content,
+        function_rpc_client::FunctionRpcClient, status_result::Status, streaming_message::Content,
         FunctionLoadRequest, FunctionLoadResponse, InvocationRequest, InvocationResponse,
         StartStream, StatusResult, StreamingMessage, WorkerInitResponse, WorkerStatusRequest,
         WorkerStatusResponse,
     },
 };
-use futures::{channel::mpsc::unbounded, future::FutureExt, stream::StreamExt};
+use futures::{channel::mpsc::unbounded, future::FutureExt};
+use futures_util::stream::StreamExt;
 use http::uri::Uri;
 use log::error;
 use std::{
@@ -94,7 +95,7 @@ impl Worker {
         let (sender, receiver) = unbounded::<StreamingMessage>();
 
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let mut client = FunctionRpcClient::connect(host_uri)
+            let mut client = FunctionRpcClient::connect(tonic::transport::channel::Channel::builder(host_uri))
                 .await
                 .map_err(|e| panic!("failed to connect to host: {}", e))
                 .unwrap();
