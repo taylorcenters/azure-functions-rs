@@ -22,9 +22,8 @@ use std::{
     pin::Pin,
     task::Poll,
 };
+use tokio::task;
 use tokio::future::poll_fn;
-use tokio_executor::threadpool::blocking;
-use tonic::Request;
 
 pub type Sender = futures::channel::mpsc::UnboundedSender<StreamingMessage>;
 
@@ -112,7 +111,7 @@ impl Worker {
                 .unwrap();
 
             let mut stream = client
-                .event_stream(Request::new(receiver))
+                .event_stream(receiver)
                 .await
                 .map_err(|e| panic!("failed to start event stream: {}", e))
                 .unwrap()
@@ -282,19 +281,21 @@ impl Worker {
 
                 tokio::spawn(ContextFuture::new(
                     poll_fn(move |_| {
-                        blocking(|| {
-                            invoker_fn.expect("invoker must have a callback")(
-                                req.replace(None).expect("only a single call to invoker"),
-                            )
-                        })
-                    })
-                    .map(|r| r.expect("expected a response")),
+                        std::task::Poll::Ready(
+                            task::block_in_place(|| {
+                                invoker_fn.expect("invoker must have a callback")(
+                                  req.replace(None).expect("only a single call to invoker"),
+                                )
+                            })
+                        )
+                    }),
                     id,
                     func_id,
                     &func.name,
                     sender,
                 ));
             }
+
             InvokerFn::Async(invoker_fn) => {
                 let id = req.invocation_id.clone();
                 let func_id = req.function_id.clone();
