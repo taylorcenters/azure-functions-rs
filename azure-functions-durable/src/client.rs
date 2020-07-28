@@ -1,12 +1,15 @@
+//use bytes::BytesMut;
 use crate::endpoint::Endpoint;
 use crate::error::ClientError;
 use crate::Result;
 use chrono::{DateTime, Utc};
-use futures::TryStreamExt;
+use futures_util::stream::TryStreamExt;
 use hyper::{self, Body, Request, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_slice, to_string, Value};
 use std::fmt::{Display, Formatter};
+//use std::iter::FromIterator;
+use std::vec::Vec;
 use url::Url;
 
 /// Represents the runtime status of an orchestration.
@@ -141,7 +144,11 @@ impl Client {
         match self.client.request(req).await {
             Ok(res) => match res.status() {
                 StatusCode::OK | StatusCode::ACCEPTED => {
-                    let body = res.into_body().try_concat().await;
+                    let body = res.into_body()
+                        .try_fold(Vec::new(), |acc, x| async move {
+                            let n = [acc, x.to_vec()].concat();
+                            Ok(n)
+                        }).await;
                     body.map(|b| {
                         from_slice(&b).map_err(|e| {
                             ClientError::Message(format!(
@@ -223,7 +230,12 @@ impl Client {
         match self.client.request(req).await {
             Ok(res) => match res.status() {
                 StatusCode::OK | StatusCode::ACCEPTED => {
-                    let body = res.into_body().try_concat().await;
+                    let body = res.into_body()
+                        .try_fold(Vec::new(), |acc, x| async move {
+                            let n = [acc, x.to_vec()].concat();
+                            Ok(n)
+                        }).await;
+
                     body.map(|b| {
                         from_slice(&b).map_err(|e| {
                             ClientError::Message(format!(
@@ -318,7 +330,12 @@ impl Client {
         match self.client.request(req).await {
             Ok(res) => match res.status() {
                 StatusCode::OK => {
-                    let body = res.into_body().try_concat().await;
+                    let body = res.into_body()
+                        .try_fold(Vec::new(), |acc, x| async move {
+                            let n = [acc, x.to_vec()].concat();
+                            Ok(n)
+                        }).await;
+
                     let result: PurgeHistoryResult = body
                         .map(|b| {
                             from_slice(&b).map_err(|e| {
@@ -431,7 +448,12 @@ impl Client {
         match self.client.request(req).await {
             Ok(res) => match res.status() {
                 StatusCode::ACCEPTED => {
-                    let body = res.into_body().try_concat().await;
+                    let body = res.into_body()
+                        .try_fold(Vec::new(), |acc, x| async move {
+                            let n = [acc, x.to_vec()].concat();
+                            Ok(n)
+                        }).await;
+
                     body.map(|b| {
                         from_slice(&b).map_err(|e| {
                             ClientError::Message(format!(

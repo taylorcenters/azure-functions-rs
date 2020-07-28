@@ -5,13 +5,14 @@ use crate::{
     logger,
     registry::Registry,
     rpc::{
-        client::FunctionRpcClient, status_result::Status, streaming_message::Content,
+        function_rpc_client::FunctionRpcClient, status_result::Status, streaming_message::Content,
         FunctionLoadRequest, FunctionLoadResponse, InvocationRequest, InvocationResponse,
         StartStream, StatusResult, StreamingMessage, WorkerInitResponse, WorkerStatusRequest,
         WorkerStatusResponse,
     },
 };
-use futures::{channel::mpsc::unbounded, future::FutureExt, stream::StreamExt};
+use futures::{channel::mpsc::unbounded, future::FutureExt};
+use futures_util::stream::StreamExt;
 use http::uri::Uri;
 use log::error;
 use std::{
@@ -21,9 +22,8 @@ use std::{
     pin::Pin,
     task::Poll,
 };
+use tokio::task;
 use tokio::future::poll_fn;
-use tokio_executor::threadpool::blocking;
-use tonic::Request;
 
 pub type Sender = futures::channel::mpsc::UnboundedSender<StreamingMessage>;
 
@@ -94,7 +94,7 @@ impl Worker {
         let (sender, receiver) = unbounded::<StreamingMessage>();
 
         tokio::runtime::Runtime::new().unwrap().block_on(async {
-            let mut client = FunctionRpcClient::connect(host_uri)
+            let mut client = FunctionRpcClient::connect(tonic::transport::channel::Channel::builder(host_uri))
                 .await
                 .map_err(|e| panic!("failed to connect to host: {}", e))
                 .unwrap();
@@ -111,7 +111,7 @@ impl Worker {
                 .unwrap();
 
             let mut stream = client
-                .event_stream(Request::new(receiver))
+                .event_stream(receiver)
                 .await
                 .map_err(|e| panic!("failed to start event stream: {}", e))
                 .unwrap()
@@ -281,19 +281,21 @@ impl Worker {
 
                 tokio::spawn(ContextFuture::new(
                     poll_fn(move |_| {
-                        blocking(|| {
-                            invoker_fn.expect("invoker must have a callback")(
-                                req.replace(None).expect("only a single call to invoker"),
-                            )
-                        })
-                    })
-                    .map(|r| r.expect("expected a response")),
+                        std::task::Poll::Ready(
+                            task::block_in_place(|| {
+                                invoker_fn.expect("invoker must have a callback")(
+                                  req.replace(None).expect("only a single call to invoker"),
+                                )
+                            })
+                        )
+                    }),
                     id,
                     func_id,
                     &func.name,
                     sender,
                 ));
             }
+
             InvokerFn::Async(invoker_fn) => {
                 let id = req.invocation_id.clone();
                 let func_id = req.function_id.clone();
